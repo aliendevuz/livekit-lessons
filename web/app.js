@@ -42,16 +42,24 @@ async function route() {
 
 // ---------- kirish ----------
 
-/** Kirish sahifasi: tayyor hisoblar ro'yxati, ustiga bosilsa kiriladi. */
-async function loginView() {
-  let users = [];
-  try {
-    users = await api("GET", "/auth/demo");
-  } catch (error) {
-    toast(error.message);
+/** Kirish sahifasi: bo'sh hisoblar ro'yxati, ustiga bosilsa kiriladi. Band hisoblar ko'rinmaydi. */
+async function loginView(known) {
+  let users = known || [];
+  if (!known) {
+    try {
+      users = await api("GET", "/auth/demo");
+    } catch (error) {
+      toast(error.message);
+    }
   }
   const enter = (user) => act(async () => {
-    const session = await api("POST", "/auth/demo", { username: user.username, init_data: initData || null });
+    let session;
+    try {
+      session = await api("POST", "/auth/demo", { username: user.username, init_data: initData || null });
+    } catch (error) {
+      if (error.status === 409) loginView(); // shu hisobni boshqa kishi ulgurib tanladi — ro'yxat yangilanadi
+      throw error;
+    }
     setToken(session.token);
     me = session.user;
     await route();
@@ -59,7 +67,7 @@ async function loginView() {
   const section = (title, role) => {
     const list = users.filter((user) => user.role === role);
     return list.length > 0 && h("section", null,
-      h("h2", null, title),
+      h("h2", null, title, " ", h("span", { class: "count" }, String(list.length))),
       h("div", { class: "account-grid" }, list.map((user) =>
         h("button", { type: "button", class: "account", onclick: enter(user) },
           avatar(user.full_name, user.groups[0] && groupColor(user.groups[0].id)),
@@ -68,20 +76,35 @@ async function loginView() {
             h("div", { class: "muted small" }, `@${user.username}`)),
           h("div", { class: "badges" }, user.groups.map(groupBadge))))));
   };
-  render(
-    h("div", { class: "login" },
-      h("div", { class: "login-top" }, themeButton()),
-      h("div", { class: "login-hero" },
-        h("span", { class: "brand-mark large" }, icon("graduation-cap")),
-        h("h1", null, "Onlayn darslar"),
-        h("p", { class: "muted" }, users.length
-          ? "Sinov rejimi. Kimning nomidan kirishni tanlang."
-          : "Tayyor hisoblar yo'q. Serverda DEMO_MODE=1 yoqilganini tekshiring.")),
-      section("Admin", "admin"),
-      section("O'qituvchilar", "teacher"),
-      section("O'quvchilar", "student"),
-    ),
+  const root = h("div", { class: "login" },
+    h("div", { class: "login-top" }, themeButton()),
+    h("div", { class: "login-hero" },
+      h("span", { class: "brand-mark large" }, icon("graduation-cap")),
+      h("h1", null, "Onlayn darslar"),
+      h("p", { class: "muted" }, users.length
+        ? "Bo'sh hisoblardan birini tanlang. Band hisoblar ro'yxatda ko'rinmaydi."
+        : "Hozir bo'sh hisob yo'q. Kimdir chiqishi bilan shu yerda paydo bo'ladi.")),
+    section("Admin", "admin"),
+    section("O'qituvchilar", "teacher"),
+    section("O'quvchilar", "student"),
   );
+  render(root);
+
+  // Ro'yxat o'zi yangilanadi: kimdir hisob tanlasa, u boshqalarning ekranidan yo'qoladi
+  const snapshot = JSON.stringify(users);
+  const timer = setInterval(async () => {
+    if (!root.isConnected) return clearInterval(timer);
+    let fresh;
+    try {
+      fresh = await api("GET", "/auth/demo", null, { quiet: true });
+    } catch {
+      return; // vaqtinchalik xato — keyingi safar yana so'raladi
+    }
+    if (root.isConnected && JSON.stringify(fresh) !== snapshot) {
+      clearInterval(timer);
+      loginView(fresh);
+    }
+  }, ACCOUNTS_REFRESH_MS);
 }
 
 // ---------- mening darslarim ----------

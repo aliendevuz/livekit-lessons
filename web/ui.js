@@ -10,6 +10,8 @@ const STATUS = { scheduled: "Kutilmoqda", live: "Jonli efir", ended: "Tugagan", 
 const GROUP_COLORS = ["#2563eb", "#15803d", "#c2410c", "#7e22ce", "#be185d", "#0f766e"];
 const AVATAR_COLORS = ["#475569", "#0f766e", "#7e22ce", "#b45309", "#be185d", "#1d4ed8", "#4d7c0f"];
 const RECORDING_POLL_MS = 2000;
+const HEARTBEAT_MS = 20000;
+const ACCOUNTS_REFRESH_MS = 4000;
 
 let token = null;
 let me = null;
@@ -229,6 +231,17 @@ function act(handler) {
     }
   };
 }
+
+// "Men shu yerdaman" signali: server shunga qarab hisob band ekanini biladi va uni kirish ro'yxatida yashiradi.
+setInterval(async () => {
+  if (!token || !me) return;
+  try {
+    await api("GET", "/me", null, { quiet: true });
+  } catch {
+    // session yopilgan bo'lsa (hisobni boshqa qurilma egallagan) kirish sahifasiga qaytadi; dars ichida — dars o'zi hal qiladi
+    if (!me && !document.querySelector(".room-page")) loginView();
+  }
+}, HEARTBEAT_MS);
 
 function setLessonParam(roomName) {
   const search = roomName ? `?lesson=${encodeURIComponent(roomName)}` : "";

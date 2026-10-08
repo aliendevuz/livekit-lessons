@@ -6,6 +6,7 @@ jumladan admin nomidan kira oladi — haqiqiy foydalanuvchilar bilan ishlatilmay
 
 import secrets
 import sqlite3
+from datetime import timedelta
 
 import bcrypt
 
@@ -87,10 +88,25 @@ def groups_of(conn: sqlite3.Connection, user_id: int) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def list_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    marks = ",".join("?" * len(DEMO_USERNAMES))
+# Sahifa har 20 soniyada "men shu yerdaman" deb turadi. Shuncha vaqt jim turgan hisob bo'sh hisoblanadi.
+# Zaxira bilan olingan: fondagi tab va uxlagan telefon signalni kechiktiradi.
+BUSY_SECONDS = 90
+
+
+def is_busy(conn: sqlite3.Connection, user_id: int) -> bool:
+    """Shu hisob bilan hozir kimdir saytda o'tiribdimi."""
     return conn.execute(
+        "SELECT 1 FROM sessions WHERE user_id = ? AND expires_at > ? AND last_seen_at > ?",
+        (user_id, fmt(now()), fmt(now() - timedelta(seconds=BUSY_SECONDS))),
+    ).fetchone() is not None
+
+
+def list_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Kirish ro'yxati: faqat bo'sh hisoblar. Band hisob ko'rinmaydi — ikki kishi bittasini tanlab qo'ymaydi."""
+    marks = ",".join("?" * len(DEMO_USERNAMES))
+    users = conn.execute(
         f"""SELECT * FROM users WHERE is_active = 1 AND username IN ({marks})
             ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'teacher' THEN 1 ELSE 2 END, id""",
         DEMO_USERNAMES,
     ).fetchall()
+    return [user for user in users if not is_busy(conn, user["id"])]

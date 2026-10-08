@@ -15,6 +15,8 @@ from . import config
 from .db import fmt, get_db, now
 
 INIT_DATA_MAX_AGE = 24 * 3600
+# last_seen_at har so'rovda emas, shuncha soniyada bir marta yangilanadi (bazaga ortiqcha yozmaslik uchun)
+SEEN_UPDATE_SECONDS = 10
 
 
 def hash_pincode(pincode: str) -> str:
@@ -32,8 +34,8 @@ def _token_hash(token: str) -> str:
 def create_session(conn: sqlite3.Connection, user_id: int) -> str:
     token = secrets.token_urlsafe(32)
     conn.execute(
-        "INSERT INTO sessions (user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (user_id, _token_hash(token), fmt(now()), fmt(now() + timedelta(days=config.SESSION_DAYS))),
+        "INSERT INTO sessions (user_id, token_hash, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+        (user_id, _token_hash(token), fmt(now()), fmt(now() + timedelta(days=config.SESSION_DAYS)), fmt(now())),
     )
     return token
 
@@ -45,13 +47,16 @@ def current_user(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "login qilinmagan")
     row = conn.execute(
-        """SELECT u.*, s.id AS session_id
+        """SELECT u.*, s.id AS session_id, s.last_seen_at
            FROM sessions s JOIN users u ON u.id = s.user_id
            WHERE s.token_hash = ? AND s.expires_at > ? AND u.is_active = 1""",
         (_token_hash(authorization[7:]), fmt(now())),
     ).fetchone()
     if row is None:
         raise HTTPException(401, "session yaroqsiz")
+    # kim hozir saytda ekani shundan bilinadi (kirish ro'yxatida band hisoblar yashiriladi)
+    if not row["last_seen_at"] or row["last_seen_at"] < fmt(now() - timedelta(seconds=SEEN_UPDATE_SECONDS)):
+        conn.execute("UPDATE sessions SET last_seen_at = ? WHERE id = ?", (fmt(now()), row["session_id"]))
     return row
 
 

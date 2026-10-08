@@ -26,8 +26,10 @@ Qoidalar:
 - token_hash: str (unique)
 - created_at: datetime
 - expires_at: datetime
+- last_seen_at: datetime (nullable)
 
 Qoidalar:
+- last_seen_at: shu session bilan oxirgi so'rov vaqti; sahifa har 20 soniyada signal yuboradi. 90 soniya ichida signal kelgan hisob "band" hisoblanadi va sinov rejimidagi kirish ro'yxatida ko'rinmaydi
 - token: tasodifiy 32 bayt, clientga bir marta beriladi; bazada faqat hash'i turadi
 - expires_at o'tgan session yaroqsiz
 - bitta user'da bir nechta session bo'lishi mumkin (har qurilma uchun alohida)

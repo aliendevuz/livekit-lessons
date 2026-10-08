@@ -19,6 +19,9 @@ def init_db() -> None:
     conn = connect()
     try:
         conn.executescript(SCHEMA)
+        # avvalroq yaratilgan bazalarda bu ustun yo'q
+        if "last_seen_at" not in [column["name"] for column in conn.execute("PRAGMA table_info(sessions)")]:
+            conn.execute("ALTER TABLE sessions ADD COLUMN last_seen_at TEXT")
         exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (config.ADMIN_USERNAME,)).fetchone()
         if config.ADMIN_PINCODE and not exists:
             conn.execute(

@@ -2,6 +2,7 @@
 
 const TILE_RATIO = 16 / 9;
 const TILE_GAP = 8;
+const LESSON_CHECK_MS = 20000;
 
 async function lessonView(roomName) {
   const LK = window.LivekitClient;
@@ -189,10 +190,33 @@ async function lessonView(roomName) {
 
   function cleanup() {
     clearInterval(clock);
+    clearInterval(watchdog);
     window.removeEventListener("resize", layout);
     setLessonParam(null);
   }
-  const goHome = () => act(() => homeView())();
+  /** Darsdan chiqqach bosh sahifa. Ro'yxat yuklanmasa ham dars sahifasi ekranda qolib ketmaydi. */
+  async function goHome() {
+    try {
+      await homeView();
+    } catch (error) {
+      toast(error.message);
+      if (!me) return loginView();
+      shell(null, emptyState("triangle-alert", "Darslar ro'yxatini yuklab bo'lmadi"),
+        h("p", null, button("Qayta urinish", null, "", act(() => homeView()))));
+    }
+  }
+  // Zaxira: dars tugaganini LiveKit xabar qilmasa ham (aloqa yomon bo'lsa shunday bo'ladi) sahifa buni o'zi biladi
+  const watchdog = setInterval(async () => {
+    if (closing) return;
+    let lessons;
+    try {
+      lessons = await api("GET", "/lessons", null, { quiet: true });
+    } catch (error) {
+      if (!me) close("Hisobingiz boshqa qurilmada ochildi");
+      return; // vaqtinchalik xato — keyingi safar yana so'raladi
+    }
+    if (!lessons.upcoming.some((lesson) => lesson.room_name === roomName)) close("Dars tugadi");
+  }, LESSON_CHECK_MS);
 
   async function close(message) {
     if (closing) return;
@@ -297,7 +321,10 @@ async function lessonView(roomName) {
     tileFor(participant);
     updateTile(participant);
   });
-  for (const enable of [() => local.setMicrophoneEnabled(true), () => local.setCameraEnabled(true)]) {
+  // O'quvchi kamera va mikrofoni o'chiq holda kiradi va kerak bo'lganda o'zi yoqadi:
+  // katta guruhda hamma birdan yoqsa, tarmoq ham, server ham ko'tarmaydi.
+  const autoEnable = info.is_teacher ? [() => local.setMicrophoneEnabled(true), () => local.setCameraEnabled(true)] : [];
+  for (const enable of autoEnable) {
     try {
       await enable();
     } catch (error) {

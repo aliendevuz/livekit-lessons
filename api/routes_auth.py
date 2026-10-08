@@ -112,6 +112,8 @@ def demo_users(conn: sqlite3.Connection = Depends(get_db)):
 @router.post("/auth/demo")
 def demo_login(body: DemoLoginIn, conn: sqlite3.Connection = Depends(get_db)):
     """Tayyor user nomidan pincode'siz kiradi. Faqat sinov rejimida."""
+    # Ikki kishi bitta hisobni bir vaqtda bossa, faqat birinchisi kiradi: tekshiruv va kirish bitta navbatda
+    conn.execute("BEGIN IMMEDIATE")
     user = None
     if config.DEMO_MODE and body.username in demo.DEMO_USERNAMES:
         user = conn.execute(
@@ -119,6 +121,10 @@ def demo_login(body: DemoLoginIn, conn: sqlite3.Connection = Depends(get_db)):
         ).fetchone()
     if user is None:
         raise HTTPException(404, "bunday demo user yo'q")
+    if demo.is_busy(conn, user["id"]):
+        raise HTTPException(409, "Bu hisobni hozirgina boshqa kishi tanladi. Boshqasini tanlang.")
+    # eski, tashlab ketilgan sessiyalar yopiladi: hisob bir vaqtda faqat bitta qurilmada ishlaydi
+    conn.execute("DELETE FROM sessions WHERE user_id = ?", (user["id"],))
     if body.init_data:
         bind_telegram(conn, user["id"], telegram_id_from_init_data(body.init_data))
         user = conn.execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
