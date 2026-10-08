@@ -1,14 +1,18 @@
 import sqlite3
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from . import config, lessons, rooms
-from .db import get_db, iso
+from .db import fmt, get_db, iso, now
 from .security import current_user, media_token
 
 router = APIRouter(prefix="/lessons", tags=["lessons"])
 
 UPLOAD_TOKEN_TTL = 12 * 3600
+INSTANT_LESSON_MIN = 60
+# Shuncha daqiqa ichida boshlanadigan rejali dars bo'lsa, yangisi yaratilmaydi — o'sha ochiladi
+REUSE_SCHEDULED_WITHIN_MIN = 15
 VIEW_TOKEN_TTL = 3600
 
 _MINE = """
@@ -86,6 +90,41 @@ def my_lessons(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connecti
         "upcoming": [_lesson_out(lesson, user) for lesson in upcoming],
         "past": [_lesson_out(lesson, user) for lesson in past],
     }
+
+
+@router.get("/groups")
+def my_groups(user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """O'qituvchining o'z guruhlari — bosh sahifadagi "Dars boshlash" tugmalari uchun."""
+    rows = conn.execute(
+        """SELECT g.id, g.name, (SELECT COUNT(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+           FROM groups g WHERE g.teacher_id = ? ORDER BY g.id""",
+        (user["id"],),
+    )
+    return [dict(row) for row in rows]
+
+
+@router.post("/groups/{group_id}/start")
+def start_now(group_id: int, user: sqlite3.Row = Depends(current_user), conn: sqlite3.Connection = Depends(get_db)):
+    """O'qituvchi o'z guruhida darsni hozir boshlaydi. Ochiq yoki boshlanish arafasidagi dars bo'lsa — o'sha qaytadi."""
+    group = conn.execute("SELECT * FROM groups WHERE id = ?", (group_id,)).fetchone()
+    if group is None:
+        raise HTTPException(404, "guruh topilmadi")
+    if group["teacher_id"] != user["id"]:
+        raise HTTPException(403, "faqat guruh o'qituvchisi dars boshlay oladi")
+    existing = conn.execute(
+        """SELECT room_name FROM lessons
+           WHERE group_id = ? AND (status = 'live' OR (status = 'scheduled' AND starts_at <= ?))
+           ORDER BY status = 'live' DESC, starts_at LIMIT 1""",
+        (group_id, fmt(now() + timedelta(minutes=REUSE_SCHEDULED_WITHIN_MIN))),
+    ).fetchone()
+    if existing:
+        return {"room_name": existing["room_name"]}
+    room_name = lessons.new_room_name()
+    conn.execute(
+        "INSERT INTO lessons (group_id, starts_at, duration_min, room_name, created_at) VALUES (?, ?, ?, ?, ?)",
+        (group_id, fmt(now()), INSTANT_LESSON_MIN, room_name, fmt(now())),
+    )
+    return {"room_name": room_name}
 
 
 @router.post("/{room_name}/join")

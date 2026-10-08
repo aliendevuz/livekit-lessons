@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -18,6 +19,12 @@ from .security import (
 router = APIRouter(tags=["auth"])
 
 USERNAME_RE = re.compile(r"[a-z0-9_]{3,32}")
+
+# Pincode qisqa, shuning uchun uni saralab topishga yo'l qo'yilmaydi:
+# ketma-ket shuncha xato urinishdan keyin shu username vaqtincha qulflanadi.
+MAX_FAILED_LOGINS = 5
+LOCK_SECONDS = 300
+_failed_logins: dict[str, tuple[int, float]] = {}  # username -> (xatolar soni, qulf tugash vaqti)
 PINCODE_PATTERN = r"^\d{4,6}$"
 
 
@@ -85,9 +92,17 @@ def register(body: RegisterIn, conn: sqlite3.Connection = Depends(get_db)):
 
 @router.post("/auth/login")
 def login(body: LoginIn, conn: sqlite3.Connection = Depends(get_db)):
+    failures, locked_until = _failed_logins.get(body.username, (0, 0.0))
+    if time.monotonic() < locked_until:
+        minutes = int((locked_until - time.monotonic()) // 60) + 1
+        raise HTTPException(429, f"Juda ko'p xato urinish. {minutes} daqiqadan keyin qayta urinib ko'ring.")
     user = conn.execute("SELECT * FROM users WHERE username = ?", (body.username,)).fetchone()
     if user is None or not verify_pincode(body.pincode, user["pincode_hash"]):
+        failures += 1
+        locked = failures >= MAX_FAILED_LOGINS
+        _failed_logins[body.username] = (0, time.monotonic() + LOCK_SECONDS) if locked else (failures, 0.0)
         raise HTTPException(401, "username yoki pincode noto'g'ri")
+    _failed_logins.pop(body.username, None)
     if not user["is_active"]:
         raise HTTPException(403, "user bloklangan")
     if body.init_data:
@@ -117,7 +132,7 @@ def demo_login(body: DemoLoginIn, conn: sqlite3.Connection = Depends(get_db)):
     user = None
     if config.DEMO_MODE and body.username in demo.DEMO_USERNAMES:
         user = conn.execute(
-            "SELECT * FROM users WHERE username = ? AND is_active = 1", (body.username,)
+            "SELECT * FROM users WHERE username = ? AND is_active = 1 AND role != 'admin'", (body.username,)
         ).fetchone()
     if user is None:
         raise HTTPException(404, "bunday demo user yo'q")

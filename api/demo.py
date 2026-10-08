@@ -16,8 +16,8 @@ from .db import fmt, now
 GROUPS = config.DEMO_GROUPS
 STUDENTS = config.DEMO_STUDENTS
 
+# Admin bu ro'yxatda yo'q: unga faqat username va pincode bilan kiriladi.
 DEMO_USERS = [
-    (config.ADMIN_USERNAME, "Admin", "admin"),
     *[(f"teacher{number}", f"Teacher {number}", "teacher") for number in range(1, GROUPS + 1)],
     *[(f"student{number}", f"Student {number}", "student") for number in range(1, STUDENTS + 1)],
 ]
@@ -105,8 +105,8 @@ def list_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     """Kirish ro'yxati: faqat bo'sh hisoblar. Band hisob ko'rinmaydi — ikki kishi bittasini tanlab qo'ymaydi."""
     marks = ",".join("?" * len(DEMO_USERNAMES))
     users = conn.execute(
-        f"""SELECT * FROM users WHERE is_active = 1 AND username IN ({marks})
-            ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'teacher' THEN 1 ELSE 2 END, id""",
+        f"""SELECT * FROM users WHERE is_active = 1 AND role != 'admin' AND username IN ({marks})
+            ORDER BY CASE role WHEN 'teacher' THEN 1 ELSE 2 END, id""",
         DEMO_USERNAMES,
     ).fetchall()
     return [user for user in users if not is_busy(conn, user["id"])]

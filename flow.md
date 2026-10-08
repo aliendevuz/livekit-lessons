@@ -57,6 +57,12 @@ Jadvallar: [database.md](database.md)
 5. bitta darsni bekor qilish: status = cancelled (o'chirilmaydi, aks holda cron uni qayta yaratadi)
 6. bitta teacher'ning ikki guruhida vaqti ustma-ust tushadigan Schedule qo'shilmaydi
 
+## O'qituvchi darsni o'zi boshlashi
+1. o'qituvchi bosh sahifadagi "Guruhlarim" bo'limida guruh yonidagi "Dars boshlash" ni bosadi
+2. guruhda jonli dars yoki 15 daqiqa ichida boshlanadigan rejali dars bo'lsa — yangi dars yaratilmaydi, o'sha ochiladi
+3. aks holda hozir boshlanadigan 60 daqiqalik Lesson yaratiladi va o'qituvchi darhol unga kiradi
+4. havola o'quvchilarga odatdagidek cron orqali ketadi; saytdagilar darsni "Yaqin darslar"da ko'radi
+
 ## Darslarni jadvaldan yaratish (cron, kuniga bir marta)
 1. har bir Schedule uchun keyingi 7 kun ichidagi sanalar hisoblanadi
 2. mavjud bo'lmaganlari uchun Lesson yaratiladi (status = scheduled)

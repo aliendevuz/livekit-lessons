@@ -84,9 +84,9 @@ async function loginView(known) {
       h("p", { class: "muted" }, users.length
         ? "Bo'sh hisoblardan birini tanlang. Band hisoblar ro'yxatda ko'rinmaydi."
         : "Hozir bo'sh hisob yo'q. Kimdir chiqishi bilan shu yerda paydo bo'ladi.")),
-    section("Admin", "admin"),
     section("O'qituvchilar", "teacher"),
     section("O'quvchilar", "student"),
+    h("p", { class: "login-admin" }, button("Admin sifatida kirish", "key-round", "ghost", adminLogin)),
   );
   render(root);
 
@@ -105,6 +105,19 @@ async function loginView(known) {
       loginView(fresh);
     }
   }, ACCOUNTS_REFRESH_MS);
+}
+
+/** Admin tayyor hisoblar ro'yxatida yo'q: unga username va pincode bilan kiriladi. */
+function adminLogin() {
+  formDialog("Admin sifatida kirish", [
+    { name: "username", label: "Username", value: "admin", attrs: { autocomplete: "username" } },
+    { name: "pincode", label: "Pincode", type: "password", attrs: { inputmode: "numeric", autocomplete: "current-password" } },
+  ], "Kirish", async ({ username, pincode }) => {
+    const session = await api("POST", "/auth/login", { username, pincode, init_data: initData || null });
+    setToken(session.token);
+    me = session.user;
+    await route();
+  });
 }
 
 // ---------- mening darslarim ----------
@@ -126,9 +139,14 @@ function lessonCard(lesson, action) {
   );
 }
 
-async function homeView(data) {
+async function homeView(data, knownGroups) {
   const lessons = data || await api("GET", "/lessons");
+  const groups = knownGroups || (me.role === "teacher" ? await api("GET", "/lessons/groups") : []);
   const { upcoming, past } = lessons;
+  const startNow = (group) => act(async () => {
+    const { room_name } = await api("POST", `/lessons/groups/${group.id}/start`);
+    await lessonView(room_name);
+  });
   const joinLabel = (lesson) => {
     if (lesson.status === "live") return "Darsga kirish";
     return lesson.is_teacher ? "Darsni boshlash" : "Kirish";
@@ -139,6 +157,15 @@ async function homeView(data) {
       h("p", { class: "muted" }, upcoming.some((lesson) => lesson.status === "live")
         ? "Hozir jonli dars ketmoqda."
         : upcoming.length ? "Yaqin darslaringiz quyida." : "Hozircha rejalashtirilgan dars yo'q."))),
+    groups.length > 0 && h("section", null,
+      h("h2", null, "Guruhlarim"),
+      h("div", { class: "list" }, groups.map((group) =>
+        h("div", { class: "card group-row", "data-group": group.name },
+          h("span", { class: "group-stripe", style: `background: ${groupColor(group.id)}` }),
+          h("div", { class: "grow" },
+            h("div", { class: "row-title" }, group.name),
+            h("div", { class: "muted small" }, `${group.member_count} o'quvchi`)),
+          button("Dars boshlash", "zap", "", startNow(group), { "data-start": group.id }))))),
     h("section", null,
       h("h2", null, "Yaqin darslar"),
       upcoming.length
@@ -169,7 +196,7 @@ async function homeView(data) {
     if (root.isConnected && !document.querySelector("dialog[open]")
         && (JSON.stringify(fresh) !== snapshot || labelsMayChange)) {
       clearInterval(timer);
-      homeView(fresh);
+      homeView(fresh, groups);
     }
   }, HOME_REFRESH_MS);
 }
