@@ -7,52 +7,72 @@ jumladan admin nomidan kira oladi — haqiqiy foydalanuvchilar bilan ishlatilmay
 import secrets
 import sqlite3
 
+import bcrypt
+
 from . import config
 from .db import fmt, now
-from .security import hash_pincode
+
+GROUPS = config.DEMO_GROUPS
+STUDENTS = config.DEMO_STUDENTS
 
 DEMO_USERS = [
     (config.ADMIN_USERNAME, "Admin", "admin"),
-    *[(f"teacher{number}", f"Teacher {number}", "teacher") for number in range(1, 3)],
-    *[(f"student{number}", f"Student {number}", "student") for number in range(1, 11)],
+    *[(f"teacher{number}", f"Teacher {number}", "teacher") for number in range(1, GROUPS + 1)],
+    *[(f"student{number}", f"Student {number}", "student") for number in range(1, STUDENTS + 1)],
 ]
 DEMO_USERNAMES = [username for username, _, _ in DEMO_USERS]
 
+# Har guruhga bitta teacher; o'quvchilar tartib bilan teng bo'linadi (10 ta, 2 guruh: 1-5 va 6-10).
+_PER_GROUP = -(-STUDENTS // GROUPS)
 # (guruh nomi, teacher, o'quvchilar)
 DEMO_GROUPS = [
-    ("Group 1", "teacher1", [f"student{number}" for number in range(1, 6)]),
-    ("Group 2", "teacher2", [f"student{number}" for number in range(6, 11)]),
+    (f"Group {index + 1}", f"teacher{index + 1}",
+     [f"student{number}" for number in range(index * _PER_GROUP + 1, min((index + 1) * _PER_GROUP, STUDENTS) + 1)])
+    for index in range(GROUPS)
 ]
 
 
 def seed(conn: sqlite3.Connection) -> None:
     """Yo'q demo userlarni yaratadi. Mavjudlariga (masalan, o'z pincode'li admin) tegmaydi."""
+    created = set()
     for username, full_name, role in DEMO_USERS:
         if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
             continue
-        # pincode tasodifiy: bu userlarga faqat demo tugmasi orqali kiriladi
+        # Pincode tasodifiy va hech kimga ma'lum emas: bu userlarga faqat demo tugmasi orqali kiriladi.
+        # Uni topib bo'lmagani uchun eng arzon hash yetadi — aks holda 50 ta user yaratish yarim daqiqa oladi.
+        unusable = bcrypt.hashpw(secrets.token_hex(16).encode(), bcrypt.gensalt(rounds=4)).decode()
         conn.execute(
             "INSERT INTO users (username, pincode_hash, full_name, role, created_at) VALUES (?, ?, ?, ?, ?)",
-            (username, hash_pincode(secrets.token_hex(16)), full_name, role, fmt(now())),
+            (username, unusable, full_name, role, fmt(now())),
         )
-    _seed_groups(conn)
+        created.add(username)
+    _seed_groups(conn, created)
 
 
-def _seed_groups(conn: sqlite3.Connection) -> None:
-    """Hech qanday guruh bo'lmasa tayyor guruhlarni yaratadi. Admin o'zgartirgan guruhlarga tegmaydi."""
-    if conn.execute("SELECT 1 FROM groups").fetchone():
-        return
+def _seed_groups(conn: sqlite3.Connection, created: set[str]) -> None:
+    """Bo'sh bazada tayyor guruhlarni yaratadi; keyin faqat yangi yaratilgan o'quvchilarni guruhiga qo'shadi.
+
+    Admin o'zgartirgan narsalarga tegmaydi: mavjud a'zoliklar va guruhlar joyida qoladi.
+    """
+    no_groups_yet = conn.execute("SELECT 1 FROM groups").fetchone() is None
 
     def user_id(username: str) -> int:
         return conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()["id"]
 
     for name, teacher, students in DEMO_GROUPS:
-        group_id = conn.execute(
-            "INSERT INTO groups (teacher_id, name, created_at) VALUES (?, ?, ?)", (user_id(teacher), name, fmt(now()))
-        ).lastrowid
+        group = conn.execute("SELECT id FROM groups WHERE name = ?", (name,)).fetchone()
+        if group is None and (no_groups_yet or teacher in created):
+            group_id = conn.execute(
+                "INSERT INTO groups (teacher_id, name, created_at) VALUES (?, ?, ?)",
+                (user_id(teacher), name, fmt(now())),
+            ).lastrowid
+        elif group is None:
+            continue  # admin bu guruhni o'chirgan
+        else:
+            group_id = group["id"]
         conn.executemany(
-            "INSERT INTO group_members (group_id, student_id, joined_at) VALUES (?, ?, ?)",
-            [(group_id, user_id(student), fmt(now())) for student in students],
+            "INSERT OR IGNORE INTO group_members (group_id, student_id, joined_at) VALUES (?, ?, ?)",
+            [(group_id, user_id(student), fmt(now())) for student in students if student in created],
         )
 
 

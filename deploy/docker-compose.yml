@@ -56,6 +56,8 @@ services:
       BOT_TOKEN: ${BOT_TOKEN:-}
       CORS_ORIGINS: https://${DOMAIN}
       DEMO_MODE: ${DEMO_MODE:-}
+      DEMO_GROUPS: ${DEMO_GROUPS:-}
+      DEMO_STUDENTS: ${DEMO_STUDENTS:-}
     volumes:
       - api_data:/data
 

@@ -33,6 +33,9 @@ CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 
 # Sinov rejimi: login sahifasida tayyor userlar ro'yxati, pincode'siz kirish. Qarang: demo.py
 DEMO_MODE = os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes")
+# Nechta tayyor guruh va o'quvchi yaratiladi. Har guruhga bitta teacher, o'quvchilar teng bo'linadi.
+DEMO_GROUPS = max(1, int(os.getenv("DEMO_GROUPS") or 2))
+DEMO_STUDENTS = max(0, int(os.getenv("DEMO_STUDENTS") or 10))
 
 SESSION_DAYS = 30
 LINK_BEFORE_MIN = 1
