@@ -1,0 +1,78 @@
+# Serverda ishga tushirish:
+#   cd deploy && cp .env.example .env   (va .env ni to'ldiring)
+#   docker compose up -d --build
+#
+# Tashqariga ochiq portlar: 80, 443 (sahifa, API, yozuvlar, LiveKit signaling — hammasi Caddy orqali),
+# 7881/tcp va 7882/udp (jonli video, to'g'ridan-to'g'ri LiveKit'ga).
+
+x-app: &app
+  build: ..
+  restart: unless-stopped
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN ni .env da ko'rsating}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api, media, livekit]
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    # node-ip: brauzerlar videoni shu manzilga yuboradi
+    command: --config /etc/livekit.yaml --node-ip ${SERVER_IP:?SERVER_IP ni .env da ko'rsating}
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"
+    ports:
+      - "7881:7881"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+
+  api:
+    <<: *app
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DB_PATH: /data/app.db
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PINCODE: ${ADMIN_PINCODE}
+      # brauzerga beriladigan manzillar
+      LIVEKIT_URL: wss://${DOMAIN}
+      MEDIA_URL: https://${DOMAIN}
+      WEBAPP_URL: https://${DOMAIN}
+      # API'ning o'zi ichki tarmoq orqali ulanadi
+      LIVEKIT_INTERNAL_URL: http://livekit:7880
+      MEDIA_INTERNAL_URL: http://media:8001
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      MEDIA_SECRET: ${MEDIA_SECRET}
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      CORS_ORIGINS: https://${DOMAIN}
+      DEMO_MODE: ${DEMO_MODE:-}
+    volumes:
+      - api_data:/data
+
+  media:
+    <<: *app
+    command: uvicorn media.main:app --host 0.0.0.0 --port 8001
+    environment:
+      MEDIA_SECRET: ${MEDIA_SECRET}
+      RECORDINGS_DIR: /data/recordings
+      CORS_ORIGINS: https://${DOMAIN}
+      VIDEO_CRF: ${VIDEO_CRF:-28}
+      # 2 yadroli serverda bittasi jonli dars uchun bo'sh qoladi
+      FFMPEG_THREADS: ${FFMPEG_THREADS:-1}
+    volumes:
+      - recordings:/data/recordings
+
+volumes:
+  caddy_data:
+  api_data:
+  recordings:

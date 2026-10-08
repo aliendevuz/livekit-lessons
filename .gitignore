@@ -1,0 +1,12 @@
+# Maxfiy sozlamalar — hech qachon repoga tushmasin (namunasi: .env.example)
+.env
+
+# Lokal ma'lumotlar
+api/app.db
+media/recordings/
+
+# Python
+.venv/
+__pycache__/
+
+*.tar.gz

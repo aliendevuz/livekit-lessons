@@ -1,0 +1,13 @@
+# HTTPS sertifikatini Caddy o'zi oladi va yangilab turadi.
+{$DOMAIN} {
+	# LiveKit signaling (WebSocket). Jonli videoning o'zi bu yerdan o'tmaydi.
+	@livekit path /rtc /rtc/* /twirp/*
+	reverse_proxy @livekit livekit:7880
+
+	# Yozuvlarni yuklash va ko'rish
+	@media path /recordings/*
+	reverse_proxy @media media:8001
+
+	# Sahifa va API
+	reverse_proxy api:8000
+}
